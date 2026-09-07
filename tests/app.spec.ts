@@ -689,3 +689,53 @@ test('batch selection organizes chosen sources and deletion preserves knowledge'
   await nav(page, '知识文档')
   await expect(page.locator('.note-index [data-note-id]')).not.toHaveCount(0)
 })
+
+test('rebuild hierarchy uses dedicated command and preserves notes on success and graph on failure', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const state = JSON.parse(localStorage.getItem('guiye.workspace.v1')!)
+    state.projects[0].result.knowledgePoints = [
+      { id: 'kp1', label: '维数', detail: '维数说明', sourceIds: [], evidence: [], manual: true },
+    ]
+    state.projects[0].result.nodes[1].pointIds = ['kp1']
+    localStorage.setItem('guiye.workspace.v1', JSON.stringify(state))
+    ;(window as any).isTauri = true
+    ;(window as any).__TAURI_INTERNALS__ = {
+      invoke: async (command: string, args: any) => {
+        if (command === 'load_workspace')
+          return JSON.parse(localStorage.getItem('guiye.workspace.v1')!)
+        if (command === 'save_workspace') {
+          localStorage.setItem('guiye.workspace.v1', JSON.stringify(args.workspace))
+          return
+        }
+        if (command === 'organize') throw new Error('重建层级不应调用全文整理')
+        if (command === 'rebuild_graph') {
+          if ((window as any).failRebuild) throw new Error('层级仍是扁平列表')
+          const result = JSON.parse(JSON.stringify(args.request.previous))
+          result.nodes[0].label = '新的层级根节点'
+          return result
+        }
+      },
+    }
+  })
+  await page.goto('/')
+  const before = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('guiye.workspace.v1')!).projects[0].result,
+  )
+  await nav(page, '知识图谱')
+  await page.getByRole('button', { name: '重建层级', exact: true }).click()
+  await expect(page.locator('.node-detail h3')).toHaveText('新的层级根节点')
+  await expect(page.locator('.save-state')).toContainText('已保存')
+  const saved = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('guiye.workspace.v1')!).projects[0].result,
+  )
+  expect(saved.notes).toEqual(before.notes)
+  expect(saved.knowledgePoints).toEqual(before.knowledgePoints)
+  await page.evaluate(() => {
+    ;(window as any).failRebuild = true
+  })
+  await page.getByRole('button', { name: '重建层级', exact: true }).click()
+  await expect(page.getByText('Error: 层级仍是扁平列表', { exact: true })).toBeVisible()
+  await expect(page.locator('.node-detail h3')).toHaveText('新的层级根节点')
+})

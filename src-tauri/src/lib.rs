@@ -20,6 +20,10 @@ mod desktop {
         .await
     }
     #[tauri::command]
+    async fn rebuild_graph(request: ai::OrganizeRequest) -> Result<ai::KnowledgeResult, String> {
+        ai::rebuild_graph(request).await
+    }
+    #[tauri::command]
     async fn ask_question(request: qa::QuestionRequest) -> Result<qa::Answer, String> {
         qa::ask(request).await
     }
@@ -70,6 +74,7 @@ mod desktop {
             .manage(Mutex::new(()))
             .invoke_handler(tauri::generate_handler![
                 organize,
+                rebuild_graph,
                 ask_question,
                 test_connection,
                 load_workspace,

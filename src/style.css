@@ -3708,3 +3708,8 @@ svg {
   font-size: 12px;
   line-height: 1.9;
 }
+
+.graph-overlay {
+  display: flex;
+  gap: 8px;
+}

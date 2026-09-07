@@ -85,3 +85,10 @@ export async function askQuestion(
     questionBusy.value = false
   }
 }
+
+export async function rebuildGraph(project: Project, settings: Settings): Promise<Result> {
+  if (!desktop) throw new Error('重建图谱层级需要桌面版。')
+  return invoke('rebuild_graph', {
+    request: { title: project.title, sources: project.sources, previous: project.result, settings },
+  })
+}

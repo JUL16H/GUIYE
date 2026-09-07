@@ -45,7 +45,15 @@ import {
   type Result,
   type KnowledgePoint,
 } from './types'
-import { desktop, download, loadWorkspace, saveWorkspace, organize, testConnection } from './api'
+import {
+  desktop,
+  download,
+  loadWorkspace,
+  saveWorkspace,
+  organize,
+  rebuildGraph,
+  testConnection,
+} from './api'
 import { renderMarkdown } from './markdown'
 const defaults: Settings = {
   baseUrl: 'https://api.deepseek.com',
@@ -583,11 +591,11 @@ function requestOrganize() {
   if (project.value.result) modal.value = 'reorganize'
   else runOrganize()
 }
-async function runOrganize(onlySourceIds?: string[]) {
+async function runOrganize(onlySourceIds?: string[], graphOnly = false) {
   if (busy.value || storageBlocked.value) return
   modal.value = ''
   busy.value = true
-  progress.value = '正在读取素材并提取知识点…'
+  progress.value = graphOnly ? '正在分析概念关系并重建图谱层级…' : '正在读取素材并提取知识点…'
   busyProjectId.value = project.value.id
   error.value = ''
   const target = project.value
@@ -600,9 +608,11 @@ async function runOrganize(onlySourceIds?: string[]) {
     )
   }
   try {
-    const result = await organize(input, { ...settings }, (message) => {
-      progress.value = message
-    })
+    const result = graphOnly
+      ? await rebuildGraph(input, { ...settings })
+      : await organize(input, { ...settings }, (message) => {
+          progress.value = message
+        })
     if (
       JSON.stringify(target.sources) !== originalSources ||
       JSON.stringify(target.result) !== JSON.stringify(input.result)
@@ -620,8 +630,8 @@ async function runOrganize(onlySourceIds?: string[]) {
     const updatedNotes = result.notes.filter((n) => oldNoteIds.has(n.id)).length
     const newNotes = result.notes.length - updatedNotes
     target.result = result
-    target.organizedAt = new Date().toISOString()
-    target.updatedAt = target.organizedAt
+    if (!graphOnly) target.organizedAt = new Date().toISOString()
+    target.updatedAt = new Date().toISOString()
     if (activeId.value === target.id) {
       selectedNodeId.value = result.nodes[0]?.id ?? ''
       if (!result.notes.some((n) => n.id === selectedNoteId.value))
@@ -629,7 +639,9 @@ async function runOrganize(onlySourceIds?: string[]) {
       editingNote.value = false
     }
     notify(
-      `整理完成：更新 ${updatedNotes} 篇，新建 ${newNotes} 篇，共 ${result.notes.length} 篇知识文档`,
+      graphOnly
+        ? '图谱层级已重建，知识点与笔记正文已保留'
+        : `整理完成：更新 ${updatedNotes} 篇，新建 ${newNotes} 篇，共 ${result.notes.length} 篇知识文档`,
     )
   } catch (e) {
     error.value = String(e)
@@ -1516,6 +1528,13 @@ function runMenu(item: MenuAction) {
                 :selected="selectedNodeId"
                 @select="openNode"
               >
+                <button
+                  class="button secondary"
+                  :disabled="busy || storageBlocked || !project.result?.knowledgePoints?.length"
+                  @click="runOrganize(undefined, true)"
+                >
+                  <Sparkles :size="16" />重建层级
+                </button>
                 <button
                   class="button secondary graph-detail-toggle"
                   :aria-pressed="rightOpen"

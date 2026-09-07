@@ -112,52 +112,120 @@ pub fn balanced(text: &str) -> bool {
 pub fn chinese(text: &str) -> bool {
     text.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
 }
-pub fn meaningful(text: &str) -> bool {
-    let text = text.trim();
-    if text.is_empty() {
+// Match only a complete standalone command. A line such as
+// `\section{定义} 向量满足 $v\in V$` contains content after the heading.
+fn standalone_command(line: &str, command: &str) -> bool {
+    let Some(mut rest) = line.strip_prefix(command) else {
+        return false;
+    };
+    rest = rest.trim_start();
+    if let Some(tail) = rest.strip_prefix('*') {
+        rest = tail.trim_start();
+    }
+    if let Some(tail) = rest.strip_prefix('[') {
+        let Some(end) = tail.find(']') else {
+            return false;
+        };
+        rest = tail[end + 1..].trim_start();
+    }
+    if !rest.starts_with('{') {
         return false;
     }
-    if text.lines().all(|line| {
-        let line = line.trim();
-        line.is_empty()
-            || line.starts_with('#')
-            || line.chars().all(|c| "-$*_=|`~ ".contains(c))
+    let mut depth = 0;
+    let mut escaped = false;
+    for (i, c) in rest.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' => escaped = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return rest[i + 1..].trim().is_empty();
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+pub fn meaningful(text: &str) -> bool {
+    let mut fence: Option<(char, usize)> = None;
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((marker, count)) = fence {
+            if line.chars().take_while(|c| *c == marker).count() >= count {
+                fence = None;
+                continue;
+            }
+            // Code/preprocessor lines beginning with # are not Markdown titles.
+            if line.chars().any(char::is_alphanumeric) {
+                return true;
+            }
+            continue;
+        }
+        let marker = line.chars().next().unwrap();
+        let count = line.chars().take_while(|c| *c == marker).count();
+        if matches!(marker, '`' | '~') && count >= 3 {
+            // Inline fenced content must not be mistaken for an opening fence.
+            if line[count..].contains(&marker.to_string().repeat(count)) {
+                if line[count..].chars().any(char::is_alphanumeric) {
+                    return true;
+                }
+            } else {
+                fence = Some((marker, count));
+            }
+            continue;
+        }
+        let hashes = line.chars().take_while(|c| *c == '#').count();
+        let heading = (1..=6).contains(&hashes)
+            && (line.len() == hashes || line[hashes..].starts_with(char::is_whitespace));
+        // Headings that themselves state formulas/definitions may carry knowledge.
+        if heading
+            && !line.contains(['=', '$', ':', '：', '。', '∈', '≤', '≥'])
+            && !line.contains("\\(")
+            && !line.contains("\\[")
+        {
+            continue;
+        }
+        if line.chars().all(|c| "-$*_=|`~ ".contains(c))
             || [".md", ".tex", ".txt", ".markdown"]
                 .iter()
-                .any(|ext| line.ends_with(ext) && !line.contains(' '))
+                .any(|ext| line.ends_with(ext) && !line.chars().any(char::is_whitespace))
+            || ["\\maketitle", "\\tableofcontents"].contains(&line)
             || [
-                "\\begin{document}",
-                "\\end{document}",
-                "\\maketitle",
-                "\\tableofcontents",
-            ]
-            .contains(&line)
-            || line.starts_with("```")
-            || line.starts_with("~~~")
-            || [
-                "\\section{",
-                "\\subsection{",
-                "\\subsubsection{",
-                "\\chapter{",
-                "\\part{",
-                "\\label{",
-                "\\title{",
-                "\\author{",
-                "\\date{",
-                "\\input{",
-                "\\include{",
+                "\\section",
+                "\\subsection",
+                "\\subsubsection",
+                "\\chapter",
+                "\\part",
+                "\\label",
+                "\\title",
+                "\\author",
+                "\\date",
+                "\\input",
+                "\\include",
+                "\\begin",
+                "\\end",
+                "\\documentclass",
+                "\\usepackage",
             ]
             .iter()
-            .any(|prefix| line.starts_with(prefix) && line.ends_with('}'))
-            || ["\\begin{", "\\end{"]
-                .iter()
-                .any(|prefix| line.starts_with(prefix) && line.find('}') == Some(line.len() - 1))
-            || line.starts_with("\\documentclass")
-            || line.starts_with("\\usepackage")
-    }) {
-        return false;
+            .any(|command| standalone_command(line, command))
+        {
+            continue;
+        }
+        if line.chars().any(char::is_alphanumeric) {
+            return true;
+        }
     }
-    text.chars().any(char::is_alphanumeric)
+    false
 }
 #[cfg(test)]
 mod tests {
@@ -175,6 +243,37 @@ mod tests {
             assert_eq!(pieces.concat(), text);
             assert!(pieces.iter().any(|p| p.contains(equation)));
             assert!(pieces.iter().all(|p| balanced(p)));
+        }
+    }
+    #[test]
+    fn distinguishes_standalone_structure_from_formatted_knowledge() {
+        for text in [
+            r"\section{定义}",
+            r"\section*{定义}",
+            r"\section[简写]{完整标题}",
+            r"\title{含有{嵌套}的标题}",
+            r"\documentclass[a4paper]{article}",
+            r"\usepackage{amsmath}",
+            r"\begin{equation}",
+            "# 线性代数",
+            "notes.tex",
+            "```rust\n```",
+        ] {
+            assert!(!meaningful(text), "{text}");
+        }
+        for text in [
+            r"\section{定义} 向量满足 $v\in V$",
+            r"\section{定义} $x=\frac{1}{2}$",
+            r"\usepackage{amsmath} 用于数学排版。",
+            "#define MAX_SIZE 10",
+            "# 定义：维数是基中向量的个数。",
+            "### $a=b$",
+            "```c\n#define MAX_SIZE 10\n```",
+            "```x=1```",
+            "| 名称 | 定义 |\n| 基 | 线性无关的生成集 |",
+            "\\begin{equation}\nx=1\n\\end{equation}",
+        ] {
+            assert!(meaningful(text), "{text}");
         }
     }
     #[test]
