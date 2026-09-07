@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "归页",
+  "version": "0.1.0",
+  "identifier": "com.guiye.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "归页 · 让知识有迹可循",
+        "width": 1440,
+        "height": 960,
+        "minWidth": 760,
+        "minHeight": 600,
+        "backgroundColor": "#f7f8fa",
+        "dragDropEnabled": false,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico", "icons/icon.icns"],
+    "shortDescription": "本地优先的 AI 知识整理工具",
+    "category": "Productivity"
+  }
+}
