@@ -40,7 +40,7 @@ function path(from: string, to: string) {
   return `M ${a.x + 184} ${a.y} C ${a.x + 224} ${a.y}, ${b.x - 44} ${b.y}, ${b.x} ${b.y}`
 }
 function start(event: PointerEvent) {
-  if (event.button !== 0 || (event.target as Element).closest('.graph-node')) return
+  if (event.button !== 0 || (event.target as Element).closest('.graph-node, button')) return
   event.preventDefault()
   window.getSelection()?.removeAllRanges()
   const point = graphPoint(event.clientX, event.clientY)
@@ -81,18 +81,20 @@ function reset() {
   reveal(props.nodes.find((n) => !n.parentId)?.id)
 }
 onMounted(() => {
+  let measured = false
   observer = new ResizeObserver(([entry]) => {
     if (!entry) return
     viewport.value = {
       width: entry.contentRect.width || 820,
       height: entry.contentRect.height || 420,
     }
-  })
-  if (svg.value) observer.observe(svg.value)
-  nextTick(() => {
-    reset()
+    if (!measured) {
+      measured = true
+      reset()
+    }
     ensureVisible(props.selected)
   })
+  if (svg.value) observer.observe(svg.value)
 })
 onBeforeUnmount(() => observer?.disconnect())
 watch(
@@ -176,6 +178,7 @@ watch(() => props.selected, ensureVisible)
         </g>
       </g>
     </svg>
+    <div class="graph-overlay" @pointerdown.stop @wheel.stop><slot /></div>
     <div class="graph-legend">
       <span><i />知识层级</span><span><i class="dashed" />关联关系</span>
     </div>

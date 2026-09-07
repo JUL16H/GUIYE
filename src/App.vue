@@ -140,7 +140,9 @@ const modal = ref<
   '' | 'project' | 'settings' | 'source' | 'delete' | 'reorganize' | 'about' | 'capture' | 'point'
 >('')
 const deleteName = ref('')
-const deleteTarget = ref<{ projectId: string; sourceId?: string } | null>(null)
+const deleteTarget = ref<{ projectId: string; sourceId?: string; sourceIds?: string[] } | null>(
+  null,
+)
 const deletionProject = computed(() =>
   projects.value.find((p) => p.id === deleteTarget.value?.projectId),
 )
@@ -164,6 +166,35 @@ const pointId = ref('')
 const pointTitle = ref('')
 const pointDetail = ref('')
 const pointProjectId = ref('')
+const pointParentId = ref('')
+const parentOptions = computed(() => {
+  const nodes = projects.value.find((p) => p.id === pointProjectId.value)?.result?.nodes ?? []
+  const excluded = new Set(
+    nodes.filter((n) => n.pointIds?.includes(pointId.value)).map((n) => n.id),
+  )
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const n of nodes)
+      if (n.parentId && excluded.has(n.parentId) && !excluded.has(n.id)) {
+        excluded.add(n.id)
+        changed = true
+      }
+  }
+  return nodes
+    .filter((n) => !excluded.has(n.id))
+    .map((n) => {
+      const path = [n.label]
+      const seen = new Set([n.id])
+      let parent = nodes.find((p) => p.id === n.parentId)
+      while (parent && !seen.has(parent.id)) {
+        seen.add(parent.id)
+        path.unshift(parent.label)
+        parent = nodes.find((p) => p.id === parent!.parentId)
+      }
+      return { id: n.id, label: path.join(' / ') }
+    })
+})
 const hasKnowledge = computed(
   () => !!(project.value?.sources.length || project.value?.result?.knowledgePoints?.length),
 )
@@ -172,6 +203,13 @@ function editPoint(point?: KnowledgePoint) {
   pointId.value = point?.id ?? ''
   pointTitle.value = point?.label ?? ''
   pointDetail.value = point?.detail ?? ''
+  const nodes = project.value?.result?.nodes ?? []
+  const node = nodes.find((n) => n.pointIds?.includes(point?.id ?? ''))
+  pointParentId.value = node
+    ? (node.parentId ?? '')
+    : (nodes.find((n) => n.id === selectedNodeId.value)?.id ??
+      nodes.find((n) => !n.parentId)?.id ??
+      '')
   modal.value = 'point'
 }
 function savePoint() {
@@ -184,6 +222,10 @@ function savePoint() {
     notes: [],
     changes: [],
   })
+  if (pointParentId.value && !parentOptions.value.some((n) => n.id === pointParentId.value)) {
+    error.value = '所选父节点已失效，请重新选择。'
+    return
+  }
   const points = (result.knowledgePoints ??= [])
   let point = points.find((p) => p.id === pointId.value)
   if (!point) {
@@ -204,13 +246,14 @@ function savePoint() {
       id: uid(),
       label: point.label,
       summary: point.detail,
-      parentId: result.nodes.find((n) => !n.parentId)?.id ?? null,
+      parentId: pointParentId.value || null,
       sourceIds: [...point.sourceIds],
       pointIds: [point.id],
       status: 'original',
     })
   } else {
     for (const node of linked) {
+      node.parentId = pointParentId.value || null
       const assigned = points.filter((p) => node.pointIds?.includes(p.id))
       if (assigned.length === 1) node.label = point.label
       node.summary = assigned.map((p) => p.detail).join('\n\n')
@@ -239,6 +282,7 @@ function openSource(id: string) {
   else notify('该来源已移除')
 }
 function openNode(id: string) {
+  rightOpen.value = true
   selectedNodeId.value = id
   navigate('graph')
 }
@@ -310,6 +354,7 @@ watch(
   { deep: true },
 )
 watch(activeId, () => {
+  selectedSourceIds.value = []
   if (!ready.value) return
   selectedNodeId.value = project.value?.result?.nodes[0]?.id ?? ''
   selectedNoteId.value = project.value?.result?.notes[0]?.id ?? ''
@@ -500,9 +545,30 @@ function removeSource() {
   deleteName.value = ''
   modal.value = 'delete'
 }
+const selectedSourceIds = ref<string[]>([])
+const selectedSources = computed(
+  () => project.value?.sources.filter((s) => selectedSourceIds.value.includes(s.id)) ?? [],
+)
+const allSourcesSelected = computed(
+  () =>
+    sources.value.length > 0 && sources.value.every((s) => selectedSourceIds.value.includes(s.id)),
+)
+function toggleSources() {
+  const visible = new Set(sources.value.map((s) => s.id))
+  selectedSourceIds.value = allSourcesSelected.value
+    ? selectedSourceIds.value.filter((id) => !visible.has(id))
+    : [...new Set([...selectedSourceIds.value, ...visible])]
+}
+function removeSelectedSources() {
+  deleteTarget.value = {
+    projectId: project.value.id,
+    sourceIds: selectedSources.value.map((s) => s.id),
+  }
+  modal.value = 'delete'
+}
 async function organizeSource(source: Source) {
   if (busy.value) return
-  await runOrganize(source.id)
+  await runOrganize([source.id])
 }
 function requestOrganize() {
   if (!project.value || busy.value) return
@@ -517,7 +583,7 @@ function requestOrganize() {
   if (project.value.result) modal.value = 'reorganize'
   else runOrganize()
 }
-async function runOrganize(onlySourceId?: string) {
+async function runOrganize(onlySourceIds?: string[]) {
   if (busy.value || storageBlocked.value) return
   modal.value = ''
   busy.value = true
@@ -527,10 +593,10 @@ async function runOrganize(onlySourceId?: string) {
   const target = project.value
   const input = JSON.parse(JSON.stringify(target)) as Project
   const originalSources = JSON.stringify(target.sources)
-  if (onlySourceId) {
+  if (onlySourceIds) {
     // Include only the selected source and sources already in the knowledge base.
     input.sources = input.sources.filter(
-      (s) => s.id === onlySourceId || input.result?.sourceFingerprints?.[s.id],
+      (s) => onlySourceIds.includes(s.id) || input.result?.sourceFingerprints?.[s.id],
     )
   }
   try {
@@ -651,9 +717,13 @@ function requestDeleteProject(id = activeId.value) {
 }
 function deleteProject() {
   const target = deletionProject.value
-  if (!target || (!deleteTarget.value?.sourceId && deleteName.value !== target.title)) return
-  if (deleteTarget.value?.sourceId) {
-    target.sources = target.sources.filter((s) => s.id !== deleteTarget.value?.sourceId)
+  const ids =
+    deleteTarget.value?.sourceIds ??
+    (deleteTarget.value?.sourceId ? [deleteTarget.value.sourceId] : [])
+  if (!target || (!ids.length && deleteName.value !== target.title)) return
+  if (ids.length) {
+    target.sources = target.sources.filter((s) => !ids.includes(s.id))
+    selectedSourceIds.value = selectedSourceIds.value.filter((id) => !ids.includes(id))
     target.updatedAt = new Date().toISOString()
     notify('素材已移除，已有知识文档仍保留')
   } else {
@@ -996,7 +1066,7 @@ function runMenu(item: MenuAction) {
         />
       </main>
       <main v-if="project" class="main-content" :class="`page-${page}`">
-        <header class="page-heading">
+        <header v-if="page !== 'graph'" class="page-heading">
           <div>
             <div class="eyebrow">
               {{
@@ -1004,15 +1074,13 @@ function runMenu(item: MenuAction) {
                   ? 'PROJECT OVERVIEW'
                   : page === 'sources'
                     ? 'SOURCE LIBRARY'
-                    : page === 'graph'
-                      ? 'KNOWLEDGE GRAPH'
-                      : page === 'notes'
-                        ? 'REWRITTEN NOTES'
-                        : page === 'knowledge'
-                          ? 'KNOWLEDGE POINTS'
-                          : page === 'chat'
-                            ? 'KNOWLEDGE Q&A'
-                            : 'PREFERENCES'
+                    : page === 'notes'
+                      ? 'REWRITTEN NOTES'
+                      : page === 'knowledge'
+                        ? 'KNOWLEDGE POINTS'
+                        : page === 'chat'
+                          ? 'KNOWLEDGE Q&A'
+                          : 'PREFERENCES'
               }}
             </div>
             <div class="page-title">
@@ -1031,15 +1099,13 @@ function runMenu(item: MenuAction) {
                   ? project.description || '从一条记录开始，建立自己的知识体系。'
                   : page === 'sources'
                     ? '收集片段和文档，保留知识的原始出处。'
-                    : page === 'graph'
-                      ? '从整体到细节，探索知识之间的联系。'
-                      : page === 'notes'
-                        ? '从知识点重新编排生成的文档，支持 Markdown 与 LaTeX。'
-                        : page === 'knowledge'
-                          ? '从原始素材中提取原子知识点，逐条理解、追溯并持续积累。'
-                          : page === 'chat'
-                            ? '根据现有知识提问、比较和推导，将新理解继续加入知识库。'
-                            : '连接你选择的模型，定义知识整理的方式。'
+                    : page === 'notes'
+                      ? '从知识点重新编排生成的文档，支持 Markdown 与 LaTeX。'
+                      : page === 'knowledge'
+                        ? '从原始素材中提取原子知识点，逐条理解、追溯并持续积累。'
+                        : page === 'chat'
+                          ? '根据现有知识提问、比较和推导，将新理解继续加入知识库。'
+                          : '连接你选择的模型，定义知识整理的方式。'
               }}
             </p>
           </div>
@@ -1083,14 +1149,6 @@ function runMenu(item: MenuAction) {
                 <Upload :size="16" />导入文档</button
               ><button class="button primary" @click="modal = 'capture'">
                 <Plus :size="16" />新建片段
-              </button></template
-            >
-            <template v-else-if="page === 'graph'"
-              ><button class="button secondary" @click="rightOpen = !rightOpen">
-                <PanelRightClose v-if="rightOpen" :size="16" /><PanelRightOpen
-                  v-else
-                  :size="16"
-                />节点详情
               </button></template
             >
             <template v-else-if="page === 'notes'"
@@ -1302,6 +1360,33 @@ function runMenu(item: MenuAction) {
             <span>{{ pendingSources }} 份素材待提取 / 更新</span
             ><span>未变化的素材会复用已有知识点；新增内容会融入现有图谱与知识文档。</span>
           </div>
+          <div class="source-batch-toolbar">
+            <label
+              ><input
+                type="checkbox"
+                :checked="allSourcesSelected"
+                :indeterminate="
+                  !allSourcesSelected && sources.some((s) => selectedSourceIds.includes(s.id))
+                "
+                @change="toggleSources"
+              />全选筛选结果</label
+            >
+            <span>已选 {{ selectedSources.length }} 份</span>
+            <button
+              class="button secondary"
+              :disabled="!selectedSources.length || busy || storageBlocked"
+              @click="runOrganize(selectedSources.map((s) => s.id))"
+            >
+              整理所选
+            </button>
+            <button
+              class="button secondary danger-text"
+              :disabled="!selectedSources.length || busy || storageBlocked"
+              @click="removeSelectedSources"
+            >
+              删除所选
+            </button>
+          </div>
           <section class="source-table">
             <div class="source-table-header">
               <span>名称</span><span>类型</span><span>字符数</span><span>添加时间</span><span />
@@ -1317,7 +1402,14 @@ function runMenu(item: MenuAction) {
               @click="editSource(source)"
             >
               <span class="source-name"
-                ><span
+                ><input
+                  v-model="selectedSourceIds"
+                  type="checkbox"
+                  :value="source.id"
+                  :aria-label="`选择素材：${source.title}`"
+                  @click.stop
+                />
+                <span
                   class="file-icon"
                   :class="
                     source.kind === 'text'
@@ -1418,20 +1510,23 @@ function runMenu(item: MenuAction) {
         <template v-else-if="page === 'graph'">
           <section class="graph-workspace" :class="{ 'inspector-hidden': !rightOpen }">
             <div class="graph-stage">
-              <div class="graph-stage-header">
-                <span
-                  ><Network :size="15" />{{ project.result?.nodes.length ?? 0 }} 个节点<span
-                    class="dot-separator"
-                    >·</span
-                  >{{ project.result?.relations.length ?? 0 }} 条关联</span
-                ><span>滚轮缩放 · 拖动画布 · 右键操作</span>
-              </div>
               <KnowledgeGraph
                 :nodes="project.result?.nodes ?? []"
                 :relations="project.result?.relations ?? []"
                 :selected="selectedNodeId"
-                @select="selectedNodeId = $event"
-              />
+                @select="openNode"
+              >
+                <button
+                  class="button secondary graph-detail-toggle"
+                  :aria-pressed="rightOpen"
+                  @click="rightOpen = !rightOpen"
+                >
+                  <PanelRightClose v-if="rightOpen" :size="16" /><PanelRightOpen
+                    v-else
+                    :size="16"
+                  />节点详情
+                </button>
+              </KnowledgeGraph>
             </div>
             <aside v-if="rightOpen" class="node-detail">
               <template v-if="selectedNode"
@@ -1453,7 +1548,20 @@ function runMenu(item: MenuAction) {
                     ? '手动编辑'
                     : statusLabels[selectedNode.status]
                 }}</span>
-                <p class="node-summary">{{ selectedNode.summary }}</p>
+                <div
+                  class="markdown-body node-summary"
+                  v-html="renderMarkdown(selectedNode.summary)"
+                />
+                <button
+                  v-for="point in project.result?.knowledgePoints?.filter((p) =>
+                    selectedNode?.pointIds?.includes(p.id),
+                  )"
+                  :key="point.id"
+                  class="text-button"
+                  @click="editPoint(point)"
+                >
+                  编辑知识点
+                </button>
                 <div class="inspector-section">
                   <h4>
                     素材来源<span>{{ selectedNode.sourceIds.length }}</span>
@@ -1786,6 +1894,15 @@ function runMenu(item: MenuAction) {
               >知识点标题<input v-model="pointTitle" required maxlength="160" autofocus
             /></label>
             <label class="field"
+              >父节点
+              <select v-model="pointParentId" aria-label="父节点">
+                <option value="">根节点（无父节点）</option>
+                <option v-for="node in parentOptions" :key="node.id" :value="node.id">
+                  {{ node.label }}
+                </option>
+              </select>
+            </label>
+            <label class="field"
               >知识点正文<textarea
                 v-model="pointDetail"
                 required
@@ -1852,16 +1969,21 @@ function runMenu(item: MenuAction) {
         ></template>
         <template v-else-if="modal === 'delete'"
           ><h2>
-            {{ deleteTarget?.sourceId ? '移除素材' : '删除项目' }}「{{ deletionProject?.title }}」？
+            {{
+              deleteTarget?.sourceId || deleteTarget?.sourceIds?.length ? '移除素材' : '删除项目'
+            }}「{{ deletionProject?.title }}」？
           </h2>
+          <p v-if="deleteTarget?.sourceIds?.length">
+            已选择 {{ deleteTarget.sourceIds.length }} 份素材。
+          </p>
           <p class="modal-intro">
             {{
-              deleteTarget?.sourceId
+              deleteTarget?.sourceId || deleteTarget?.sourceIds?.length
                 ? '该素材将从项目移除，已有知识文档保留。'
                 : '该项目的素材、知识图谱与知识文档将从本地移除。'
             }}
           </p>
-          <label v-if="!deleteTarget?.sourceId" class="field"
+          <label v-if="!(deleteTarget?.sourceId || deleteTarget?.sourceIds?.length)" class="field"
             >输入项目名称以确认<input
               v-model="deleteName"
               aria-label="输入项目名称以确认"
@@ -1873,11 +1995,14 @@ function runMenu(item: MenuAction) {
               class="button danger"
               :disabled="
                 !deletionProject ||
-                (!deleteTarget?.sourceId && deleteName !== deletionProject.title)
+                (!(deleteTarget?.sourceId || deleteTarget?.sourceIds?.length) &&
+                  deleteName !== deletionProject.title)
               "
               @click="deleteProject"
             >
-              {{ deleteTarget?.sourceId ? '移除素材' : '删除项目' }}
+              {{
+                deleteTarget?.sourceId || deleteTarget?.sourceIds?.length ? '移除素材' : '删除项目'
+              }}
             </button>
           </div></template
         >

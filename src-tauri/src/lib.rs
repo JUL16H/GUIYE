@@ -52,6 +52,13 @@ mod desktop {
         name: String,
         content: String,
     ) -> Result<String, String> {
+        #[cfg(target_os = "linux")]
+        let dir = app
+            .path()
+            .home_dir()
+            .map_err(|e| format!("无法找到用户目录：{e}"))?
+            .join("Downloads");
+        #[cfg(not(target_os = "linux"))]
         let dir = app
             .path()
             .download_dir()

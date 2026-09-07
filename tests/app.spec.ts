@@ -591,3 +591,101 @@ test('editing an extracted point retains its identity and original evidence', as
   expect(point.evidence).toEqual([{ sourceId: 's1', quote: '真实原文' }])
   expect(saved.projects[0].sources).toHaveLength(3)
 })
+
+test('graph detail reopens from node and context menu and canvas uses available height', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await nav(page, '知识图谱')
+  await expect(page.locator('.page-graph .page-heading')).toHaveCount(0)
+  const bounds = await page.locator('.graph-surface').boundingBox()
+  expect(bounds!.height).toBeGreaterThan(850)
+  await page.getByRole('button', { name: '关闭节点详情' }).click()
+  const node = page.getByRole('button', { name: '矩阵对角化', exact: true })
+  await node.focus()
+  await node.click()
+  await expect(page.locator('.node-detail h3')).toHaveText('矩阵对角化')
+  await page.getByRole('button', { name: '关闭节点详情' }).click()
+  await node.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '查看知识点详情', exact: true }).click()
+  await expect(page.locator('.node-detail h3')).toHaveText('矩阵对角化')
+})
+
+test('manual point parent can move and excludes descendants', async ({ page }) => {
+  await page.goto('/')
+  await nav(page, '知识点')
+  await page.getByRole('button', { name: '新建知识点', exact: true }).click()
+  await page.getByLabel('知识点标题').fill('新建子概念')
+  await page.getByLabel('知识点正文').fill('完整解释：$x^2$')
+  const options = await page
+    .getByLabel('父节点', { exact: true })
+    .locator('option')
+    .evaluateAll((nodes) => nodes.map((n) => (n as HTMLOptionElement).value).filter(Boolean))
+  await page.getByLabel('父节点', { exact: true }).selectOption(options[1])
+  await page.getByRole('button', { name: '保存知识点', exact: true }).click()
+  await page.getByRole('button', { name: '编辑知识点', exact: true }).click()
+  await expect(page.getByLabel('父节点', { exact: true })).toHaveValue(options[1])
+  await page.getByLabel('父节点', { exact: true }).selectOption(options[2])
+  await page.getByRole('button', { name: '保存知识点', exact: true }).click()
+  await expect(page.locator('.save-state')).toContainText('已保存')
+  const parent = await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem('guiye.workspace.v1')!)
+    return state.projects[0].result.nodes.find((n: any) => n.label === '新建子概念').parentId
+  })
+  expect(parent).toBe(options[2])
+  await page.getByRole('button', { name: '图谱位置', exact: true }).click()
+  await expect(page.locator('.node-detail .katex')).toHaveCount(1)
+  await page
+    .locator('.node-detail')
+    .getByRole('button', { name: '编辑知识点', exact: true })
+    .click()
+  await expect(
+    page.getByLabel('父节点', { exact: true }).locator('option', { hasText: '新建子概念' }),
+  ).toHaveCount(0)
+})
+
+test('batch selection organizes chosen sources and deletion preserves knowledge', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    ;(window as any).isTauri = true
+    ;(window as any).__TAURI_INTERNALS__ = {
+      invoke: async (command: string, args: any) => {
+        if (command === 'load_workspace')
+          return JSON.parse(localStorage.getItem('guiye.workspace.v1')!)
+        if (command === 'save_workspace') {
+          localStorage.setItem('guiye.workspace.v1', JSON.stringify(args.workspace))
+          return
+        }
+        if (command === 'organize') {
+          ;(window as any).batchSourceIds = args.request.sources.map((s: any) => s.id)
+          return args.request.previous
+        }
+      },
+    }
+  })
+  await page.goto('/')
+  await nav(page, '素材')
+  const rows = page.locator('.source-item')
+  const chosen = [
+    await rows.nth(0).getAttribute('data-source-id'),
+    await rows.nth(1).getAttribute('data-source-id'),
+  ]
+  await rows.nth(0).getByRole('checkbox').check()
+  await rows.nth(1).getByRole('checkbox').check()
+  await expect(page.locator('.modal')).toHaveCount(0)
+  await page.getByRole('button', { name: '整理所选', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).batchSourceIds)).toEqual(chosen)
+  await page.getByRole('button', { name: '删除所选', exact: true }).click()
+  await expect(page.getByText('已选择 2 份素材。')).toBeVisible()
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(rows).toHaveCount(3)
+  await page.getByRole('button', { name: '删除所选', exact: true }).click()
+  await page.getByRole('button', { name: '移除素材', exact: true }).click()
+  await expect(rows).toHaveCount(1)
+  await expect(page.locator('.save-state')).toContainText('已保存')
+  await page.reload()
+  await expect(rows).toHaveCount(1)
+  await nav(page, '知识文档')
+  await expect(page.locator('.note-index [data-note-id]')).not.toHaveCount(0)
+})

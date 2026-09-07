@@ -87,7 +87,6 @@ pub fn export_document(dir: &Path, name: &str, content: &str) -> Result<String, 
         .filter(|c| {
             !c.is_control() && !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
         })
-        .take(150)
         .collect();
     let clean = clean.trim_matches(|c: char| c == '.' || c.is_whitespace());
     let clean = if clean.is_empty() {
@@ -96,6 +95,17 @@ pub fn export_document(dir: &Path, name: &str, content: &str) -> Result<String, 
         clean
     };
     let (stem, extension) = clean.rsplit_once('.').unwrap_or((clean, "md"));
+    // Linux limits each filename by UTF-8 bytes, not characters. Leave room for
+    // extensions and collision suffixes, preserving the original extension.
+    fn prefix(text: &str, limit: usize) -> &str {
+        let mut end = text.len().min(limit);
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        &text[..end]
+    }
+    let stem = prefix(stem, 200);
+    let extension = prefix(extension, 20);
     for index in 0..1000 {
         let filename = if index == 0 {
             format!("{stem}.{extension}")
@@ -153,6 +163,20 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(fs::read_to_string(first).unwrap(), "first");
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn export_creates_downloads_and_handles_long_chinese_titles() {
+        let home = temp("long-export");
+        let _ = fs::remove_dir_all(&home);
+        let dir = home.join("Downloads");
+        let name = format!("{}.md", "知识图谱笔记".repeat(40));
+        let first = export_document(&dir, &name, "数学：$x^2$").unwrap();
+        let second = export_document(&dir, &name, "second").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(Path::new(&first).extension().unwrap(), "md");
+        assert!(Path::new(&first).file_name().unwrap().len() < 255);
+        assert_eq!(fs::read_to_string(first).unwrap(), "数学：$x^2$");
+        fs::remove_dir_all(home).unwrap();
     }
     #[test]
     fn saves_and_preserves_previous_version() {
