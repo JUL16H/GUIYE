@@ -27,6 +27,7 @@ export interface Note {
   sourceIds: string[]
 }
 export interface Result {
+  hierarchyPending?: boolean
   extractionVersion?: number
   knowledgePoints?: KnowledgePoint[]
   sourceFingerprints?: Record<string, string>

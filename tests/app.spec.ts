@@ -711,8 +711,8 @@ test('rebuild hierarchy uses dedicated command and preserves notes on success an
         }
         if (command === 'organize') throw new Error('重建层级不应调用全文整理')
         if (command === 'rebuild_graph') {
-          if ((window as any).failRebuild) throw new Error('层级仍是扁平列表')
           const result = JSON.parse(JSON.stringify(args.request.previous))
+          result.hierarchyPending = !!(window as any).failRebuild
           result.nodes[0].label = '新的层级根节点'
           return result
         }
@@ -736,6 +736,33 @@ test('rebuild hierarchy uses dedicated command and preserves notes on success an
     ;(window as any).failRebuild = true
   })
   await page.getByRole('button', { name: '重建层级', exact: true }).click()
-  await expect(page.getByText('Error: 层级仍是扁平列表', { exact: true })).toBeVisible()
+  await expect(page.getByText('知识内容已保留，图谱层级待优化。', { exact: true })).toBeVisible()
+  await expect(page.locator('.error-banner')).toHaveCount(0)
   await expect(page.locator('.node-detail h3')).toHaveText('新的层级根节点')
+  await page.evaluate(() => {
+    ;(window as any).failRebuild = false
+  })
+  await page.getByRole('button', { name: '继续优化', exact: true }).click()
+  await expect(page.getByText('知识内容已保留，图谱层级待优化。', { exact: true })).toHaveCount(0)
+})
+
+test('long supported text files are imported intact instead of rejected by old size caps', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await nav(page, '素材')
+  const content = '完整的知识段落。\n\n'.repeat(40000)
+  await page
+    .locator('input[type=file]')
+    .setInputFiles({ name: '长文档.md', mimeType: 'text/markdown', buffer: Buffer.from(content) })
+  await expect(page.locator('.error-banner')).toHaveCount(0)
+  await expect(page.locator('.source-item').filter({ hasText: '长文档.md' })).toHaveCount(1)
+  await expect(page.locator('.save-state')).toContainText('已保存')
+  const stored = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem('guiye.workspace.v1')!).projects[0].sources.find(
+        (s: any) => s.title === '长文档.md',
+      ).content,
+  )
+  expect(stored).toBe(content)
 })

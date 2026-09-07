@@ -472,10 +472,6 @@ function createProject() {
 }
 function addFragment() {
   if (!draft.value.trim()) return
-  if (draft.value.length > 100000) {
-    error.value = '单条素材不能超过 100,000 字符。'
-    return
-  }
   project.value.sources.push({
     id: uid(),
     title: draft.value.trim().split('\n')[0]!.slice(0, 28),
@@ -500,18 +496,10 @@ async function importFiles(files: FileList | null) {
       failures.push(`${file.name}：不支持此格式`)
       continue
     }
-    if (file.size > 1024 * 1024) {
-      failures.push(`${file.name}：超过 1 MB`)
-      continue
-    }
     try {
       const content = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer())
       if (!content.trim()) {
         failures.push(`${file.name}：文件为空`)
-        continue
-      }
-      if (content.length > 100000) {
-        failures.push(`${file.name}：超过 100,000 字符`)
         continue
       }
       target.sources.push({
@@ -639,9 +627,11 @@ async function runOrganize(onlySourceIds?: string[], graphOnly = false) {
       editingNote.value = false
     }
     notify(
-      graphOnly
-        ? '图谱层级已重建，知识点与笔记正文已保留'
-        : `整理完成：更新 ${updatedNotes} 篇，新建 ${newNotes} 篇，共 ${result.notes.length} 篇知识文档`,
+      result.hierarchyPending
+        ? '知识内容已保留，图谱层级待继续优化'
+        : graphOnly
+          ? '图谱层级已重建，知识点与笔记正文已保留'
+          : `整理完成：更新 ${updatedNotes} 篇，新建 ${newNotes} 篇，共 ${result.notes.length} 篇知识文档`,
     )
   } catch (e) {
     error.value = String(e)
@@ -1176,6 +1166,20 @@ function runMenu(item: MenuAction) {
           </div>
         </header>
 
+        <div
+          v-if="project.result?.hierarchyPending && !busy"
+          class="pipeline-progress"
+          role="status"
+        >
+          <span>知识内容已保留，图谱层级待优化。</span>
+          <button
+            class="text-button"
+            :disabled="storageBlocked"
+            @click="runOrganize(undefined, true)"
+          >
+            继续优化
+          </button>
+        </div>
         <div v-if="busy && busyProjectId === project.id" class="pipeline-progress" role="status">
           <LoaderCircle :size="17" class="spin" /><span>{{ progress }}</span
           ><small>完成所有阶段后一次性保存，不覆盖中间结果</small>
@@ -1925,7 +1929,6 @@ function runMenu(item: MenuAction) {
               >知识点正文<textarea
                 v-model="pointDetail"
                 required
-                maxlength="100000"
                 rows="12"
                 @keydown.ctrl.enter.prevent="savePoint"
               />
@@ -1947,7 +1950,6 @@ function runMenu(item: MenuAction) {
             class="capture-editor"
             aria-label="知识片段"
             placeholder="在这里写下你的知识片段…"
-            maxlength="100000"
             @keydown.ctrl.enter="addFragment"
             @keydown.meta.enter="addFragment"
           />
@@ -1968,12 +1970,7 @@ function runMenu(item: MenuAction) {
           <p class="modal-intro">修改素材不会自动覆盖已有的图谱和笔记。</p>
           <label class="field">标题<input v-model="sourceTitle" maxlength="160" /></label
           ><label class="field"
-            >内容<textarea
-              v-model="sourceContent"
-              class="source-editor"
-              maxlength="100000"
-              spellcheck="false"
-            />
+            >内容<textarea v-model="sourceContent" class="source-editor" spellcheck="false" />
           </label>
           <div class="modal-actions">
             <button class="text-button danger-text" @click="removeSource">
