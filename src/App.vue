@@ -550,15 +550,21 @@ async function runOrganize(onlySourceId?: string) {
       result: target.result ? JSON.parse(JSON.stringify(target.result)) : null,
       organizedAt: target.organizedAt,
     }
+    const oldNoteIds = new Set(target.result?.notes.map((n) => n.id) ?? [])
+    const updatedNotes = result.notes.filter((n) => oldNoteIds.has(n.id)).length
+    const newNotes = result.notes.length - updatedNotes
     target.result = result
     target.organizedAt = new Date().toISOString()
     target.updatedAt = target.organizedAt
     if (activeId.value === target.id) {
       selectedNodeId.value = result.nodes[0]?.id ?? ''
-      selectedNoteId.value = result.notes[0]?.id ?? ''
+      if (!result.notes.some((n) => n.id === selectedNoteId.value))
+        selectedNoteId.value = result.notes[0]?.id ?? ''
       editingNote.value = false
     }
-    notify(`整理完成：${result.nodes.length} 个知识点，${result.notes.length} 篇笔记`)
+    notify(
+      `整理完成：更新 ${updatedNotes} 篇，新建 ${newNotes} 篇，共 ${result.notes.length} 篇知识文档`,
+    )
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -1880,7 +1886,7 @@ function runMenu(item: MenuAction) {
           <h2>重新整理项目？</h2>
           <p class="modal-intro">
             AI
-            将依据当前素材重新生成图谱和笔记，替换已有内容（含手动编辑）。完成后可在本次会话中撤销一次。
+            将依据当前知识更新图谱和文档，优先编辑已有文档、合并同主题小笔记，独立主题才新建。文档正文（含手动编辑）会重新编排；手动知识点保留。完成后可在本次会话中撤销一次。
           </p>
           <div class="modal-actions">
             <button class="button secondary" @click="modal = ''">取消</button
