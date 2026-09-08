@@ -1,0 +1,202 @@
+[
+  {
+    "path": ".gitignore",
+    "sha256": "3658f3de988feb9b293c7d91066cd6ff4d5221c66ff7fc5dfbc69c02351a401e",
+    "lines": 10
+  },
+  {
+    "path": ".prettierignore",
+    "sha256": "408f16cabc1eac069b8af5f78944bec1f80fe077b5251378e471e8869aa326fa",
+    "lines": 9
+  },
+  {
+    "path": ".prettierrc.json",
+    "sha256": "247948f37fa595cc5c84503e35dcb06706b874f01777807691e11a4fc8ee4431",
+    "lines": 1
+  },
+  {
+    "path": "index.html",
+    "sha256": "5b0e125d282f9451f084260cef5fe77e99c7dc5d4ae9bd6435ec8cd3c271d0d9",
+    "lines": 14
+  },
+  {
+    "path": "package-lock.json",
+    "sha256": "cc65826512693ab17a998126dae304cbfe98df442ae0482234510ac751e4d37b",
+    "lines": 1979
+  },
+  {
+    "path": "package.json",
+    "sha256": "ba61c5e76f7127bf84259ac4392ac79aaa61aed6623fede8a8518ab6e79166c5",
+    "lines": 32
+  },
+  {
+    "path": "playwright.config.ts",
+    "sha256": "c67b0ae6064031bd1fc539358c138185580ad9ea1f5097543225c5af8ac70926",
+    "lines": 17
+  },
+  {
+    "path": "public/icon.svg",
+    "sha256": "fc1cb2ab1eecb8e3d725440eacce1c25d8ede70cfbeb1bbfd958af10a89fc73d",
+    "lines": 1
+  },
+  {
+    "path": "src-tauri/Cargo.lock",
+    "sha256": "ffbe1d4c609091cd90dbcdc48e912138ff5075830025d48f89b7767a4bf3941f",
+    "lines": 4840
+  },
+  {
+    "path": "src-tauri/Cargo.toml",
+    "sha256": "73b865970c90d2a34a8b2e106805070a8b4ae31e30aa521261f3ad2e54e200ee",
+    "lines": 35
+  },
+  {
+    "path": "src-tauri/build.rs",
+    "sha256": "b5e696d43e56c5f660c9d22ceed0ed9f50465b6e837eb0726887b6c392bf1c85",
+    "lines": 4
+  },
+  {
+    "path": "src-tauri/capabilities/default.json",
+    "sha256": "c14119d98b73e1eba5d631a5c5cc2fcedde447d0c2687439b182209afa19907e",
+    "lines": 6
+  },
+  {
+    "path": "src-tauri/icons/android/mipmap-anydpi-v26/ic_launcher.xml",
+    "sha256": "760d4b8a06bf7163dd010c33ad2cac9e4a75fa0177afaba042f83e311eef0c3e",
+    "lines": 5
+  },
+  {
+    "path": "src-tauri/icons/android/values/ic_launcher_background.xml",
+    "sha256": "0687336f0ccc6f7ee09c7c95110667c63b75931238df779a21af401fb864cd34",
+    "lines": 4
+  },
+  {
+    "path": "src-tauri/src/ai.rs",
+    "sha256": "29abca6dcc9b5c44a0fc1058bf395c8080f2064bf156f9904c8a6248fff9731c",
+    "lines": 4153
+  },
+  {
+    "path": "src-tauri/src/ai/dedup.rs",
+    "sha256": "2f966119f7273a5c87b3dc80da14ebdabfbe61089519eef4e298f731b1b14a1f",
+    "lines": 121
+  },
+  {
+    "path": "src-tauri/src/ai/extraction.rs",
+    "sha256": "2c6c09be0054b7e76d1401f05480df5a9202dee9ab3b71519c310e9026eae6a3",
+    "lines": 616
+  },
+  {
+    "path": "src-tauri/src/bin/ai_smoke.rs",
+    "sha256": "1fa60fcc741519fa6fadfe98cdcd02f3326ea9411ea2478fc243fcb1082e133b",
+    "lines": 105
+  },
+  {
+    "path": "src-tauri/src/bin/incremental_regression.rs",
+    "sha256": "a5b1948fcf35d9c10d9d0931b723eb004e600a0b19733c34a174757d1d81e416",
+    "lines": 85
+  },
+  {
+    "path": "src-tauri/src/bin/organize_regression.rs",
+    "sha256": "14886b211de1f13baa2d19c49f943fe811d5524fc0f720c86780a750ecf53e98",
+    "lines": 125
+  },
+  {
+    "path": "src-tauri/src/bin/semantic_regression.rs",
+    "sha256": "e9cf93975042bc0a494b9ad391138d1e700a5a82b3055605636f1b5557c0bcee",
+    "lines": 215
+  },
+  {
+    "path": "src-tauri/src/lib.rs",
+    "sha256": "0893bd31b5863bbb023a0f35de644396e8e928686626a7bd2152b0629f2cf797",
+    "lines": 98
+  },
+  {
+    "path": "src-tauri/src/main.rs",
+    "sha256": "8c004050457d744df4392e877d2560a9f52d28d4a145d340cc462ce9e59a316b",
+    "lines": 4
+  },
+  {
+    "path": "src-tauri/src/qa.rs",
+    "sha256": "208c45309376e5893da7737b5ac5728aa79d851ab15929334a17129ca15f7772",
+    "lines": 196
+  },
+  {
+    "path": "src-tauri/src/storage.rs",
+    "sha256": "2cbfa6ea4e0923bf349cabc2bfd39f86f9a8a3bc99ddfc3c369bf5848bdb392a",
+    "lines": 300
+  },
+  {
+    "path": "src-tauri/src/text.rs",
+    "sha256": "5fd2b596cfb08987fbb1f75efb0f870d069421d82b6a277a3f5a94271fcf7a2e",
+    "lines": 313
+  },
+  {
+    "path": "src-tauri/tauri.conf.json",
+    "sha256": "83c14c95921866ef5ddfef14ef6d67a201015edfd98e31e2bc5e06a4ad34d818",
+    "lines": 36
+  },
+  {
+    "path": "src/App.vue",
+    "sha256": "dc9e95ed5937d8b2a76a274e76cc5749aa8622dd6532fa3c0de6814dae4c79dc",
+    "lines": 2062
+  },
+  {
+    "path": "src/api.ts",
+    "sha256": "0007dc358f11950068c6222099fcc1ff0b5b93144de4f425c490b1232c93689e",
+    "lines": 95
+  },
+  {
+    "path": "src/components/KnowledgeChat.vue",
+    "sha256": "a026a7a41ee000caef17bf8e834067d09cbc135c9416f884370ba3e483c420d3",
+    "lines": 174
+  },
+  {
+    "path": "src/components/KnowledgeGraph.vue",
+    "sha256": "5a89352c66effb5c2ccddce06b873c5ab899fc7822847a786eca3c6cbf81bc0e",
+    "lines": 202
+  },
+  {
+    "path": "src/components/ModelSettings.vue",
+    "sha256": "6e1c6c17aeb2410b7b3c2e5afb176b805c3c75ee35646cbafb0ec2056330f46e",
+    "lines": 113
+  },
+  {
+    "path": "src/demo.ts",
+    "sha256": "d19c005b92d9730ae1d2c0b079420558b89c8c503b826ea634e871fcfae957b8",
+    "lines": 191
+  },
+  {
+    "path": "src/main.ts",
+    "sha256": "64e57219623f0cf5a7613db6017f692103b07e3f30e675d9285973a0289dc9e3",
+    "lines": 5
+  },
+  {
+    "path": "src/markdown.ts",
+    "sha256": "8f9b1dc9d239289a3574596302b5b05802dd63d07455c975ea4391960630d09a",
+    "lines": 73
+  },
+  {
+    "path": "src/style.css",
+    "sha256": "02a5ded507010298e536bbf675e3eff37a45de21746a13397f122fbf18fb2204",
+    "lines": 3715
+  },
+  {
+    "path": "src/types.ts",
+    "sha256": "caef8c07d58219f7d075f879f3bd69a1c570059898766a8bff1bdac6b4aa4e70",
+    "lines": 90
+  },
+  {
+    "path": "tests/app.spec.ts",
+    "sha256": "255c7a4acea007145bd0af87d978c5d39827de5d9e5463e675cb784c58a87058",
+    "lines": 816
+  },
+  {
+    "path": "tsconfig.json",
+    "sha256": "eca01ce1aa3f98e6041a20ab25d09744709efb6c9bca9ef38b5fe6fe30732697",
+    "lines": 17
+  },
+  {
+    "path": "vite.config.ts",
+    "sha256": "792cb7364c7e0f91b3a27e0b8acfaaf017af8e4a8f198af4a592568bfc176942",
+    "lines": 14
+  }
+]

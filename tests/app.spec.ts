@@ -773,14 +773,17 @@ test('old zero-point extraction resumes once from the normal action without cont
   await page.addInitScript(() => {
     const state = JSON.parse(localStorage.getItem('guiye.workspace.v1')!)
     const completed = state.projects[0].result
-    state.projects[0].result = {
-      ...completed,
-      nodes: [],
-      notes: [],
-      knowledgePoints: [],
-      extractionPending: true,
+    if (!localStorage.getItem('old-extraction-seeded')) {
+      state.projects[0].result = {
+        ...completed,
+        nodes: [],
+        notes: [],
+        knowledgePoints: [],
+        extractionPending: true,
+      }
+      localStorage.setItem('guiye.workspace.v1', JSON.stringify(state))
+      localStorage.setItem('old-extraction-seeded', 'true')
     }
-    localStorage.setItem('guiye.workspace.v1', JSON.stringify(state))
     ;(window as any).isTauri = true
     ;(window as any).organizeCalls = 0
     ;(window as any).__TAURI_INTERNALS__ = {

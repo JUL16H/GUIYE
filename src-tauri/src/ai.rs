@@ -5,7 +5,7 @@ use crate::text::blocks;
 use crate::text::{balanced, chinese, meaningful};
 pub use extraction::{ExtractionCache, ExtractionChunk};
 const EXTRACTION_VERSION: u32 = 2;
-use futures_util::StreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -313,11 +313,11 @@ pub async fn test_connection(settings: Settings) -> Result<String, String> {
     Ok(format!("连接成功 · {}", settings.model.trim()))
 }
 
-fn existing_documents(request: &OrganizeRequest) -> Vec<Value> {
+fn existing_documents(request: &OrganizeRequest, points: &[KnowledgePoint]) -> Vec<Value> {
     let Some(previous) = &request.previous else {
         return vec![];
     };
-    let mut budget = 16000;
+    let mut budget = 4000;
     previous
         .notes
         .iter()
@@ -327,8 +327,9 @@ fn existing_documents(request: &OrganizeRequest) -> Vec<Value> {
                 .iter()
                 .filter(|n| note.node_ids.contains(&n.id))
                 .flat_map(|n| n.point_ids.iter())
+                .filter(|id| points.iter().any(|p| &p.id == *id))
                 .collect();
-            let excerpt: String = note.content.chars().take(budget.min(2000)).collect();
+            let excerpt: String = note.content.chars().take(budget.min(500)).collect();
             budget -= excerpt.chars().count();
             json!({"id":note.id,"title":note.title,"pointIds":point_ids,"contentExcerpt":excerpt})
         })
@@ -357,7 +358,7 @@ existingNotes是已有知识文档。先判断每个知识点适合编辑哪篇�
 风格偏好：{}"#,
         request.settings.prompt
     );
-    let input = json!({"project":request.title,"existingNotes":existing_documents(request),"knowledgePoints":points.iter().map(|p|json!({"id":p.id,"label":p.label,"detail":p.detail.chars().take(1200).collect::<String>(),"sourceIds":p.source_ids,"status":p.status})).collect::<Vec<_>>()});
+    let input = json!({"project":request.title,"existingNotes":existing_documents(request, points),"knowledgePoints":points.iter().map(|p|json!({"id":p.id,"label":p.label,"detail":p.detail.chars().take(1200).collect::<String>(),"sourceIds":p.source_ids,"status":p.status})).collect::<Vec<_>>()});
     let mut messages =
         json!([{"role":"system","content":system},{"role":"user","content":input.to_string()}]);
     for attempt in 0..2 {
@@ -539,7 +540,7 @@ fn parse_plan(
     if plan.topics.is_empty() || plan.topics.len() > 20 {
         return Err("主题数量无效".into());
     }
-    let existing = existing_documents(request);
+    let existing = existing_documents(request, points);
     let mut reserved: HashSet<String> = existing
         .iter()
         .filter_map(|n| n["id"].as_str().map(str::to_owned))
@@ -1945,7 +1946,27 @@ pub async fn organize_resumable(
         points.len(),
         new_sources.len()
     ));
-    let extracted = extraction::extract(
+    let retained: Vec<_> = points.iter().filter(|p| p.verbatim).cloned().collect();
+    let repaired = if retained.is_empty() {
+        Vec::new()
+    } else {
+        progress(format!(
+            "1/3 结合原文上下文复核 {} 条旧的原文保留记录",
+            retained.len()
+        ));
+        extraction::repair_retained(
+            &retained,
+            &request.sources,
+            &request.settings,
+            &cache,
+            &progress,
+            &checkpoint,
+        )
+        .await?
+        .points
+    };
+    points.retain(|p| !p.verbatim);
+    let mut extracted = extraction::extract(
         &new_sources,
         &request.settings,
         cache,
@@ -1953,6 +1974,7 @@ pub async fn organize_resumable(
         &checkpoint,
     )
     .await?;
+    extracted.points.extend(repaired);
     for mut point in extracted.points {
         let mut id = format!(
             "kp-{}-{}",
@@ -2191,7 +2213,6 @@ pub async fn organize_resumable(
             request.settings.correct, request.settings.supplement, request.settings.prompt
         );
         let all_relevant = relevant;
-        let mut written_parts = Vec::new();
         let mut parts: Vec<Vec<&KnowledgePoint>> = Vec::new();
         let mut part = Vec::new();
         let mut chars = 0;
@@ -2212,15 +2233,18 @@ pub async fn organize_resumable(
         if !part.is_empty() {
             parts.push(part);
         }
+        let mut writing = Vec::new();
         for relevant in parts {
+            let nodes = &nodes;
+            let request = &request;
+            let prompt = &prompt;
+            let changes = &result.changes;
+            let progress = &progress;
+            writing.push(async move {
             if relevant.len() == 1
                 && (relevant[0].verbatim || relevant[0].detail.chars().count() > 5000)
             {
-                written_parts.push(format!(
-                    "## {}\n\n{}",
-                    relevant[0].label, relevant[0].detail
-                ));
-                continue;
+                return Ok::<String,String>(format!("## {}\n\n{}", relevant[0].label, relevant[0].detail));
             }
             let nodes: Vec<_> = nodes
                 .iter()
@@ -2228,7 +2252,7 @@ pub async fn organize_resumable(
                 .filter(|n| relevant.iter().any(|p| n.point_ids.contains(&p.id)))
                 .collect();
             let required_ids: Vec<_> = nodes.iter().map(|n| n.id.clone()).collect();
-            let mut messages = json!([{"role":"system","content":prompt},{"role":"user","content":json!({"title":note.title,"nodes":nodes.iter().map(|n|json!({"id":n.id,"label":n.label,"pointIds":n.point_ids})).collect::<Vec<_>>(),"knowledgePoints":relevant.iter().map(|p|json!({"id":p.id,"label":p.label,"detail":p.detail,"status":p.status,"sourceIds":p.source_ids})).collect::<Vec<_>>(),"changes":result.changes.iter().filter(|change|relevant.iter().any(|p|change.contains(&p.label))).collect::<Vec<_>>()}).to_string()}]);
+            let mut messages = json!([{"role":"system","content":prompt},{"role":"user","content":json!({"title":note.title,"nodes":nodes.iter().map(|n|json!({"id":n.id,"label":n.label,"pointIds":n.point_ids})).collect::<Vec<_>>(),"knowledgePoints":relevant.iter().map(|p|json!({"id":p.id,"label":p.label,"detail":p.detail,"status":p.status,"sourceIds":p.source_ids})).collect::<Vec<_>>(),"changes":changes.iter().filter(|change|relevant.iter().any(|p|change.contains(&p.label))).collect::<Vec<_>>()}).to_string()}]);
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
             struct Written {
@@ -2292,8 +2316,14 @@ pub async fn organize_resumable(
             } else {
                 content
             };
-            written_parts.push(content);
+            progress(format!("3/3 《{}》一节已完成", note.title));
+            Ok::<String,String>(content)
+            });
         }
+        let written_parts: Vec<String> = futures_util::stream::iter(writing)
+            .buffered(2)
+            .try_collect()
+            .await?;
         result.notes[i].content = format!("# {}\n\n{}", note.title, written_parts.join("\n\n"));
     }
     result.extraction_version = EXTRACTION_VERSION;
@@ -2476,7 +2506,7 @@ async fn review_points(
                 changes.push("部分知识点的AI核验尚未完成，已保留原文。".into());
                 break;
             }
-            messages.as_array_mut().unwrap().extend([json!({"role":"assistant","content":raw}),json!({"role":"user","content":"修正JSON，pointId只能引用输入知识点，每条纠正必须有label、detail、reason且不得重复。"})]);
+            messages[0]["content"] = json!(format!("{prompt}\n修正JSON，pointId只能引用输入知识点，每条纠正必须有label、detail、reason且不得重复。"));
         }
         for c in reviewed.into_iter().flat_map(|r| r.corrections) {
             let point = chunk.iter_mut().find(|p| p.id == c.point_id).unwrap();
@@ -3075,6 +3105,101 @@ mod regression_tests {
         .unwrap();
         assert_eq!(outcome.points.len(), 2);
         assert!(outcome.points.iter().all(|p| !p.verbatim));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn repair_classifies_context_across_unrelated_topics_without_keyword_rules() {
+        let fixtures = [
+            ("Preparation", "酵母在适当温度下分解糖并产生气体。"),
+            ("一、发芽观察", "种子萌发需要适宜的水分、温度和氧气。"),
+            ("> Chart A", "工业化推动人口向城市集中。"),
+        ];
+        let (url, server) = mock_server(fixtures.len() * 2, move |i, request| {
+            let values: Value =
+                serde_json::from_str(request["messages"][1]["content"].as_str().unwrap()).unwrap();
+            let output = if i % 2 == 0 {
+                assert_eq!(values.as_array().unwrap().len(), 2);
+                json!({"points":[{"label":"观察结论","detail":fixtures[i/2].1,"passageIds":["passage-2"]}]})
+            } else {
+                assert_eq!(values.as_array().unwrap().len(), 1);
+                assert!(values[0]["after"]
+                    .as_str()
+                    .unwrap()
+                    .contains(fixtures[i / 2].1));
+                json!({"points":[],"contexts":[{"passageId":"passage-1","reason":"该段是相邻正文的标题或引用，没有独立事实"}]})
+            };
+            json!({"choices":[{"finish_reason":"stop","message":{"content":output.to_string()}}]})
+        });
+        for (heading, claim) in fixtures {
+            let sources = vec![Source {
+                id: "s".into(),
+                title: "笔记".into(),
+                content: format!("{heading}\n\n{claim}"),
+            }];
+            let outcome = extraction::extract(
+                &sources,
+                &settings(url.clone()),
+                ExtractionCache::new(),
+                &|_| {},
+                &|_, _| Ok(()),
+            )
+            .await
+            .unwrap();
+            assert_eq!(outcome.points.len(), 1);
+            assert!(!outcome.points[0].verbatim);
+            assert_eq!(outcome.points[0].detail, claim);
+        }
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn legacy_retained_context_is_repaired_without_reextracting_valid_points() {
+        let source = Source {
+            id: "s1".into(),
+            title: "植物观察".into(),
+            content: "观察记录\n\n种子萌发需要适宜的水分、温度和氧气。".into(),
+        };
+        let previous: KnowledgeResult = serde_json::from_value(json!({
+            "nodes":[],"relations":[],"notes":[],"changes":[],
+            "extractionVersion":EXTRACTION_VERSION,
+            "sourceFingerprints":{"s1":fingerprint(&source)},
+            "knowledgePoints":[
+                {"id":"good","label":"萌发条件","detail":"种子萌发需要适宜的水分、温度和氧气。","sourceIds":["s1"],"evidence":[{"sourceId":"s1","quote":"种子萌发需要适宜的水分、温度和氧气。"}]},
+                {"id":"raw","label":"原文保留：观察记录","detail":"观察记录","verbatim":true,"sourceIds":["s1"],"evidence":[{"sourceId":"s1","quote":"观察记录"}]}
+            ]
+        })).unwrap();
+        let (url, server) = mock_server(2, |i, request| {
+            let input: Value =
+                serde_json::from_str(request["messages"][1]["content"].as_str().unwrap()).unwrap();
+            let output = if i == 0 {
+                assert_eq!(input.as_array().unwrap().len(), 1);
+                assert_eq!(input[0]["text"], "观察记录");
+                assert!(input[0]["after"].as_str().unwrap().contains("种子萌发"));
+                json!({"points":[],"contexts":[{"passageId":input[0]["id"],"reason":"相邻观察结论的标题，没有独立事实"}]})
+            } else {
+                assert_eq!(input["knowledgePoints"].as_array().unwrap().len(), 1);
+                assert_eq!(input["knowledgePoints"][0]["id"], "good");
+                json!({"nodes":[{"id":"n1","label":"萌发条件","summary":"植物观察","parentId":null,"sourceIds":["s1"],"pointIds":["good"],"status":"original"}],"notes":[{"id":"note1","title":"植物观察","content":"目录","nodeIds":["n1"],"sourceIds":["s1"]}],"relations":[],"changes":[]})
+            };
+            json!({"choices":[{"finish_reason":"stop","message":{"content":output.to_string()}}]})
+        });
+        let result = organize_with_progress(
+            OrganizeRequest {
+                title: "观察".into(),
+                sources: vec![source],
+                previous: Some(previous),
+                settings: settings(url),
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.knowledge_points.len(), 1);
+        assert_eq!(result.knowledge_points[0].id, "good");
+        assert!(!result.knowledge_points[0].verbatim);
+        assert!(!result.extraction_pending);
+        assert!(result.notes[0].content.contains("种子萌发"));
         server.join().unwrap();
     }
 
@@ -3977,6 +4102,11 @@ async fn live_notes_regression() {
             |k, c| crate::storage::save_extraction_chunk(&output_dir, project_id, k, c),
         )
         .await
+        .unwrap();
+        std::fs::write(
+            output_dir.join("result.json"),
+            serde_json::to_vec_pretty(&result).unwrap(),
+        )
         .unwrap();
         assert!(result.knowledge_points.len() >= 100);
         assert!(!result.extraction_pending);
