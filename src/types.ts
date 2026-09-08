@@ -28,6 +28,7 @@ export interface Note {
 }
 export interface Result {
   hierarchyPending?: boolean
+  extractionPending?: boolean
   extractionVersion?: number
   knowledgePoints?: KnowledgePoint[]
   sourceFingerprints?: Record<string, string>
@@ -63,6 +64,7 @@ export interface Workspace {
 export const uid = () => crypto.randomUUID()
 
 export interface KnowledgePoint {
+  verbatim?: boolean
   manual?: boolean
   status?: string
   originalDetail?: string

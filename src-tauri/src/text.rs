@@ -285,3 +285,29 @@ mod tests {
         assert!(meaningful("1+1=3"));
     }
 }
+
+// Prefer sentence boundaries and never cut an open formula or fenced block.
+// A single indivisible math/code block may exceed the soft budget.
+pub fn bounded_blocks(text: &str, budget: usize) -> Vec<String> {
+    let mut result = Vec::new();
+    for block in blocks(text) {
+        let mut start = 0;
+        let mut count = 0;
+        for (i, c) in block.char_indices() {
+            count += 1;
+            let end = i + c.len_utf8();
+            let boundary = matches!(c, '\n' | '。' | '！' | '？' | '.' | '!' | '?')
+                || (count >= budget.saturating_mul(2)
+                    && (c.is_whitespace() || chinese(&c.to_string())));
+            if count >= budget && boundary && balanced(&block[start..end]) {
+                result.push(block[start..end].to_owned());
+                start = end;
+                count = 0;
+            }
+        }
+        if start < block.len() {
+            result.push(block[start..].to_owned());
+        }
+    }
+    result
+}

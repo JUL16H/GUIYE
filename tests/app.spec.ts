@@ -766,3 +766,48 @@ test('long supported text files are imported intact instead of rejected by old s
   )
   expect(stored).toBe(content)
 })
+
+test('old zero-point extraction resumes once from the normal action without continuation loops', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const state = JSON.parse(localStorage.getItem('guiye.workspace.v1')!)
+    const completed = state.projects[0].result
+    state.projects[0].result = {
+      ...completed,
+      nodes: [],
+      notes: [],
+      knowledgePoints: [],
+      extractionPending: true,
+    }
+    localStorage.setItem('guiye.workspace.v1', JSON.stringify(state))
+    ;(window as any).isTauri = true
+    ;(window as any).organizeCalls = 0
+    ;(window as any).__TAURI_INTERNALS__ = {
+      invoke: async (command: string, args: any) => {
+        if (command === 'load_workspace')
+          return JSON.parse(localStorage.getItem('guiye.workspace.v1')!)
+        if (command === 'save_workspace') {
+          localStorage.setItem('guiye.workspace.v1', JSON.stringify(args.workspace))
+          return
+        }
+        if (command === 'organize') {
+          if (args.projectId !== 'demo' || !args.request.previous.extractionPending)
+            throw new Error('Old checkpoint state missing')
+          ;(window as any).organizeCalls++
+          return { ...completed, extractionPending: false }
+        }
+      },
+    }
+  })
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: '继续整理', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '开始整理', exact: true }).click()
+  await expect(page.locator('.recent-note').first()).toBeVisible()
+  await expect(page.locator('.error-banner')).toHaveCount(0)
+  await expect(page.locator('.save-state')).toContainText('已保存')
+  expect(await page.evaluate(() => (window as any).organizeCalls)).toBe(1)
+  await page.reload()
+  await expect(page.getByRole('button', { name: '继续整理', exact: true })).toHaveCount(0)
+  await expect(page.locator('.recent-note').first()).toBeVisible()
+})

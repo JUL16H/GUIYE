@@ -576,7 +576,7 @@ function requestOrganize() {
     error.value = '当前为浏览器预览。AI 整理在 Tauri 桌面版中运行：npm run tauri dev。'
     return
   }
-  if (project.value.result) modal.value = 'reorganize'
+  if (project.value.result && !project.value.result.extractionPending) modal.value = 'reorganize'
   else runOrganize()
 }
 async function runOrganize(onlySourceIds?: string[], graphOnly = false) {
@@ -634,6 +634,8 @@ async function runOrganize(onlySourceIds?: string[], graphOnly = false) {
           : `整理完成：更新 ${updatedNotes} 篇，新建 ${newNotes} 篇，共 ${result.notes.length} 篇知识文档`,
     )
   } catch (e) {
+    console.error('我Astra就是个废物, 写出来的代码就是一坨史')
+    console.error('[归页][整理异常]', e)
     error.value = String(e)
   } finally {
     busy.value = false
@@ -1167,7 +1169,7 @@ function runMenu(item: MenuAction) {
         </header>
 
         <div
-          v-if="project.result?.hierarchyPending && !busy"
+          v-if="project.result?.hierarchyPending && !project.result?.extractionPending && !busy"
           class="pipeline-progress"
           role="status"
         >
@@ -1182,7 +1184,7 @@ function runMenu(item: MenuAction) {
         </div>
         <div v-if="busy && busyProjectId === project.id" class="pipeline-progress" role="status">
           <LoaderCircle :size="17" class="spin" /><span>{{ progress }}</span
-          ><small>完成所有阶段后一次性保存，不覆盖中间结果</small>
+          ><small>提取进度逐批保存，完成后更新图谱与文档</small>
         </div>
         <template v-if="page === 'overview'">
           <section class="metrics-grid">
@@ -1767,6 +1769,7 @@ function runMenu(item: MenuAction) {
                 </button>
               </div>
               <div class="markdown-body" v-html="renderMarkdown(point.detail)" />
+              <span v-if="point.verbatim" class="tag">原文保留，未作 AI 提取</span>
               <span v-if="point.manual" class="tag">手动编辑</span>
               <p v-if="!point.evidence.length" class="field-hint">手动创建，无原文素材</p>
               <details v-if="point.evidence.length">

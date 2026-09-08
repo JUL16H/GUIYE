@@ -12,11 +12,20 @@ mod desktop {
     #[tauri::command]
     async fn organize(
         request: ai::OrganizeRequest,
+        project_id: String,
+        app: tauri::AppHandle,
         window: tauri::WebviewWindow,
     ) -> Result<ai::KnowledgeResult, String> {
-        ai::organize_with_progress(request, |message| {
-            let _ = window.emit("organize-progress", message);
-        })
+        let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let cache = storage::load_extraction_cache(&dir, &project_id)?;
+        ai::organize_resumable(
+            request,
+            cache,
+            |message| {
+                let _ = window.emit("organize-progress", message);
+            },
+            |key, chunk| storage::save_extraction_chunk(&dir, &project_id, key, chunk),
+        )
         .await
     }
     #[tauri::command]

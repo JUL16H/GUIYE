@@ -210,3 +210,91 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 }
+
+fn checkpoint_directory(dir: &Path, project_id: &str) -> std::path::PathBuf {
+    let hash = crate::ai::fingerprint(&crate::ai::Source {
+        id: String::new(),
+        title: "project-checkpoint".into(),
+        content: project_id.into(),
+    });
+    dir.join("extraction-checkpoints").join(hash)
+}
+
+pub fn load_extraction_cache(
+    dir: &Path,
+    project_id: &str,
+) -> Result<crate::ai::ExtractionCache, String> {
+    let path = checkpoint_directory(dir, project_id);
+    let mut cache = crate::ai::ExtractionCache::new();
+    if !path.exists() {
+        return Ok(cache);
+    }
+    for entry in fs::read_dir(path).map_err(|e| format!("无法读取提取进度：{e}"))? {
+        let entry = entry.map_err(|e| format!("无法读取提取进度：{e}"))?;
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(key) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let bytes = fs::read(&path).map_err(|e| format!("无法读取提取进度：{e}"))?;
+        if let Ok(chunk) = serde_json::from_slice(&bytes) {
+            cache.insert(key.to_owned(), chunk);
+        } else {
+            crate::ai::report_unexpected("提取检查点恢复", "一个检查点不完整，将重新提取该小批次");
+        }
+    }
+    Ok(cache)
+}
+
+pub fn save_extraction_chunk(
+    dir: &Path,
+    project_id: &str,
+    key: &str,
+    chunk: &crate::ai::ExtractionChunk,
+) -> Result<(), String> {
+    if key.len() != 16 || !key.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("提取进度标识无效".into());
+    }
+    let path = checkpoint_directory(dir, project_id);
+    fs::create_dir_all(&path).map_err(|e| format!("无法保存提取进度：{e}"))?;
+    let temp = path.join(format!("{key}.tmp"));
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&temp)
+        .map_err(|e| format!("无法保存提取进度：{e}"))?;
+    let bytes = serde_json::to_vec(chunk).map_err(|e| e.to_string())?;
+    file.write_all(&bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|e| format!("无法保存提取进度：{e}"))?;
+    fs::rename(temp, path.join(format!("{key}.json"))).map_err(|e| format!("无法保存提取进度：{e}"))
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+    #[test]
+    fn checkpoints_roundtrip_and_project_ids_cannot_escape_directory() {
+        let dir = std::env::temp_dir().join(format!("guiye-checkpoint-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let chunk = crate::ai::ExtractionChunk {
+            covered: vec!["p1".into()],
+            ..Default::default()
+        };
+        save_extraction_chunk(&dir, "../../project", "0123456789abcdef", &chunk).unwrap();
+        let loaded = load_extraction_cache(&dir, "../../project").unwrap();
+        assert_eq!(loaded["0123456789abcdef"].covered, vec!["p1"]);
+        assert!(load_extraction_cache(&dir, "other-project")
+            .unwrap()
+            .is_empty());
+        assert!(save_extraction_chunk(&dir, "project", "../../evil", &chunk).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+}

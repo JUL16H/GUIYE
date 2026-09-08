@@ -31,6 +31,7 @@ export async function organize(
   }
   try {
     return await invoke('organize', {
+      projectId: project.id,
       request: {
         title: project.title,
         sources: project.sources,
